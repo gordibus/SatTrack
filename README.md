@@ -133,19 +133,31 @@ y accède via `system-site-packages` (déjà configuré dans `pyproject.toml`).
 
 ### Environnement Python
 
+**Option A - Poetry (recommandé)**
+
 ```bash
-# Cloner le dépôt
-git clone <url-du-depot>
-cd programme
+git clone https://github.com/gordibus/SatTrack.git
+cd SatTrack
 
-# Créer et activer l'environnement Poetry
 poetry install
-
-# Vérifier
-poetry run pytest          # 341 tests unitaires
-poetry run mypy src/       # ✓ zéro issue (strict)
-poetry run ruff check .    # ✓ zéro warning
+poetry run python -m satrx.tui
 ```
+
+**Option B - pip + requirements.txt**
+
+```bash
+git clone https://github.com/gordibus/SatTrack.git
+cd SatTrack
+
+python3 -m venv .venv
+source .venv/bin/activate        # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
+python -m satrx.tui
+```
+
+> Note : GNU Radio (`gnuradio`, `gr-satellites`) ne s'installe pas via pip.
+> Il est uniquement requis pour les flowgraphs de démodulation avancés.
+> Le TUI, le décodage LRPT et le suivi orbital fonctionnent sans lui.
 
 ---
 
@@ -339,17 +351,95 @@ poetry run python scripts/generate_dashboard.py
 ## TUI Dashboard
 
 ```bash
+# Avec Poetry
 poetry run python -m satrx.tui
+
+# Avec pip (venv activé)
+python -m satrx.tui
 ```
 
-Interface Textual (thème cyberpunk : fond #05050a, accent cyan #1EB8A0, magenta #ff00d4).
+Interface terminal thème cyberpunk (Textual). Fonctionne dans n'importe quel terminal
+256 couleurs (GNOME Terminal, Kitty, Windows Terminal, iTerm2...).
 
 | Touche | Action                    |
 |--------|---------------------------|
-| 1–7    | Changer d'onglet          |
+| 1-7    | Changer d'onglet          |
 | f      | Ajouter/retirer favoris   |
 | r      | Actualiser TLE            |
 | q      | Quitter                   |
+
+---
+
+### Premiere utilisation - guide pas a pas
+
+#### Etape 1 - Configurer votre station sol (onglet 7 - CONFIG)
+
+Au premier lancement, aller directement dans l'onglet 7 :
+
+- **Nom de station** : nom libre (ex: `Paris-Nord`)
+- **Latitude / Longitude** : coordonnees GPS de votre position
+  (ex: `48.9101` / `2.2549` pour Saint-Denis)
+- **Altitude** : altitude en metres (ex: `35`)
+- **Correction PPM** : decalage de l'oscillateur de votre SDR
+  (HackRF : mesurer avec `hackrf_transfer`, RTL-SDR : utiliser `kalibrate-rtl`)
+- **Gains LNA/VGA** : valeurs par defaut 30/30 dB, a ajuster selon le bruit
+- Cliquer **Sauvegarder** - les coordonnees sont utilisees pour tous les calculs de passage
+
+#### Etape 2 - Trouver un satellite et planifier une capture (onglet 1 - PASSES)
+
+1. L'onglet charge automatiquement les TLE depuis CelesTrak au demarrage
+2. La liste affiche les prochains passages dans les 24h, tries par heure AOS
+3. Pour rechercher un satellite specifique : taper son nom ou NORAD ID dans la barre
+   (ex: `METEOR-M` ou `57166` pour Meteor-M2 4)
+4. Appuyer sur **f** pour mettre un satellite en favori - il remonte en tete de liste
+5. Selectionner une ligne et appuyer sur **Entree** pour planifier automatiquement
+   une capture sur ce passage - vous basculerez sur l'onglet 2
+
+Satellites recommandes pour debuter :
+- **Meteor-M2 3** (NORAD 57166) - images meteo LRPT 137.9 MHz, passages frequents
+- **NOAA 18** (NORAD 28654) - images APT 137.9125 MHz, signal fort
+- **NOAA 19** (NORAD 33591) - images APT 137.1 MHz, signal fort
+
+#### Etape 3 - Lancer la capture (onglet 2 - PLANIFIE)
+
+- La file d'attente affiche la capture avec son heure AOS, la frequence et le statut
+- **ATTENTE** : la capture se declenchera automatiquement a l'heure AOS
+- Verifier que le materiel SDR est connecte - le TUI le detecte et affiche
+  `HackRF detecte` ou `RTL-SDR detecte` en bas d'ecran
+- Orienter l'antenne vers l'azimut affiche (ou laisser le rotateur le faire si connecte)
+- La capture passe en **EN COURS** automatiquement et bascule sur l'onglet 3
+
+#### Etape 4 - Suivre le passage (onglet 3 - EN COURS)
+
+- La trajectoire du satellite s'anime en temps reel (azimut/elevation)
+- La correction Doppler est affichee et appliquee en continu
+- Le fichier `.cs8` est ecrit dans `data/raw/` avec un sidecar `.json`
+  (frequence, gain, taux d'echantillonnage, satellite, heure AOS/LOS)
+- Cocher **Decoder a la fin** pour lancer automatiquement le pipeline apres LOS
+
+#### Etape 5 - Decoder le signal (onglet 4 - DECODAGE)
+
+1. Selectionner le fichier `.cs8` enregistre dans `data/raw/`
+2. Le protocole est detecte automatiquement depuis le sidecar :
+   - 137 MHz + taux >= 200 ksps -> LRPT (Meteor-M, image meteo couleur)
+   - 137 MHz + taux < 200 ksps -> APT (NOAA, image noir et blanc)
+3. Cliquer **Decoder** - la barre de progression suit chaque etape du pipeline
+4. En cas de succes, l'image est sauvegardee dans `data/processed/`
+   et s'ouvre dans l'onglet ARCHIVES
+
+> Si le decodage echoue (BER trop eleve, NOSYNC) : le signal etait trop faible.
+> Causes habituelles : elevation maximale < 15 deg, antenne non adaptee,
+> ou SDR centre pile sur la frequence (fuite oscillateur local a 0 Hz -
+> decaler de 100-200 kHz et corriger dans les parametres PPM).
+
+#### Etape 6 - Consulter les archives (onglet 6 - ARCHIVES)
+
+- Toutes les captures passees avec taille, image associee et statut de lisibilite
+- Colonne **Lisible** : verifie les magic bytes PNG/JPEG et l'entropie du signal
+  (`✓` image propre, `✗ chiffre ?` entropie trop elevee, `✗ corrompu` fichier tronque)
+- Bouton **Dashboard HTML** pour generer un rapport complet dans `data/processed/`
+
+---
 
 ### Onglet 1 - PASSES
 
