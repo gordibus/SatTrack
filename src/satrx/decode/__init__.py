@@ -1,3 +1,4 @@
+from satrx.decode.nrzm import nrzm_decode, nrzm_encode
 from satrx.decode.ccsds import (
     PRIMARY_HEADER_LENGTH_BYTES,
     CcsdsPacket,
@@ -95,6 +96,8 @@ __all__ = [
     "deinterleave_codewords",
     "rs_encode_interleaved",
     "rs_decode_interleaved",
+    "nrzm_decode",
+    "nrzm_encode",
     "ZRL",
     "EOB",
     "BitReader",

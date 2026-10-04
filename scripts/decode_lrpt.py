@@ -2,10 +2,14 @@
 """
 Pipeline de decodage LRPT pour les enregistrements Meteor-M2.
 
-Ordre du pipeline confirme (cf. tests/decode/test_pipeline_interop.py) :
-  IQ brut (cs8) → correction frequence → Costas → decision QPSK → bits
+Ordre du pipeline (corrige 04/10/2026 : ajout NRZ-M + tentative OQPSK) :
+  IQ brut (cs8) → correction frequence → Costas → decision QPSK
+  → decodage differentiel NRZ-M  ← maillon ajoute
   → recherche ASM (0x1ACFFC1D, non encode Viterbi) → Viterbi K=7 → derandomisation
   → RS(255,223) entrelace profondeur 4 → paquets CCSDS
+
+Si aucun ASM en QPSK standard, le pipeline tente automatiquement le downsampling
+OQPSK (branche Q decalee d'un demi-symbole, identifie via SatDump 23/09/2026).
 
 Usage :
   poetry run python scripts/decode_lrpt.py data/raw/<fichier>.cs8
@@ -217,50 +221,93 @@ def run_pipeline(
     # ---- 5. Timing recovery ----
     log.info("⚙ Recouvrement timing symbole...")
     from satrx.demod.timing_recovery import estimate_symbol_timing_offset
+    from satrx.demod.qpsk import downsample_oqpsk_symbols
     t3 = time.perf_counter()
     offset_frac = estimate_symbol_timing_offset(symbols_all, SPS_INT)
     offset_int = int(round(offset_frac))
-    symbols = symbols_all[offset_int::SPS_INT]
+    symbols_qpsk = symbols_all[offset_int::SPS_INT]
     log.info("  Offset %.2f -> %d, %d symboles extraits en %.2f s",
-             offset_frac, offset_int, len(symbols), time.perf_counter() - t3)
+             offset_frac, offset_int, len(symbols_qpsk), time.perf_counter() - t3)
 
-    # ---- 6. Decision QPSK → bits ----
-    log.info("⚙ Decision QPSK hard (I,Q)...")
-    bits_iq = symbols_to_bits_iq(symbols)
-    log.info("  %d bits", len(bits_iq))
+    # ---- 6. Decision QPSK → bits → NRZ-M decode ----
+    # NRZ-M (decodage differentiel) : identifie comme maillon manquant via SatDump 04/10/2026.
+    # Le decodage NRZ-M doit etre applique AVANT la recherche de l'ASM.
+    from satrx.decode.nrzm import nrzm_decode
 
-    # ---- 7. Recherche ASM ----
-    log.info("⚙ Recherche ASM 0x1ACFFC1D...")
-    t4 = time.perf_counter()
-    positions = find_asm_positions(bits_iq, max_hamming=1)
-    log.info("  %d positions trouvees en %.1f s", len(positions), time.perf_counter() - t4)
-
-    # Si rien en I,Q → tenter Q,I (ambiguite de phase QPSK)
-    bits_active = bits_iq
-    if not positions:
-        log.info("  Convention I,Q sans resultat - tentative Q,I...")
-        bits_qi = symbols_to_bits_qi(symbols)
-        positions = find_asm_positions(bits_qi, max_hamming=1)
-        if positions:
-            log.info("  ✓ ASM trouve avec convention Q,I : %d positions", len(positions))
-            bits_active = bits_qi
+    def make_candidate(syms: np.ndarray, conv: str) -> tuple[list[int], str]:
+        if conv == "IQ":
+            raw = symbols_to_bits_iq(syms)
         else:
-            log.warning("⚠ Aucun ASM avec ni I,Q ni Q,I")
-            # Tenter avec inversion des bits I et Q (autres ambiguites de phase)
-            for flip_i, flip_q in [(True, False), (False, True), (True, True)]:
-                sym_test = symbols.copy()
-                if flip_i:
-                    sym_test = sym_test.real * (-1) + 1j * sym_test.imag
-                if flip_q:
-                    sym_test = sym_test.real + 1j * sym_test.imag * (-1)
-                bits_test = symbols_to_bits_iq(sym_test.astype(np.complex64))
-                pos_test = find_asm_positions(bits_test, max_hamming=1)
-                if pos_test:
-                    log.info("  ✓ ASM trouve avec flip_i=%s flip_q=%s : %d positions",
-                             flip_i, flip_q, len(pos_test))
-                    positions = pos_test
-                    bits_active = bits_test
+            raw = symbols_to_bits_qi(syms)
+        return nrzm_decode(raw), conv
+
+    # ---- 7. Recherche ASM - essai systematique des variantes ----
+    log.info("⚙ Recherche ASM 0x1ACFFC1D (avec NRZ-M decode)...")
+    t4 = time.perf_counter()
+
+    positions: list[int] = []
+    bits_active: list[int] = []
+    variant_label = ""
+
+    # Variante 1 : QPSK standard (I,Q) + NRZ-M
+    for conv in ("IQ", "QI"):
+        bits_candidate, label = make_candidate(symbols_qpsk, conv)
+        pos = find_asm_positions(bits_candidate, max_hamming=1)
+        if pos:
+            log.info("  ✓ ASM trouve QPSK %s + NRZ-M : %d positions en %.1f s",
+                     label, len(pos), time.perf_counter() - t4)
+            positions, bits_active, variant_label = pos, bits_candidate, f"QPSK-{label}+NRZ-M"
+            break
+
+    # Variante 2 : OQPSK (branche Q decalee T/2) + NRZ-M si QPSK a echoue
+    if not positions:
+        log.info("  QPSK sans resultat - tentative OQPSK (Q decale T/2)...")
+        try:
+            symbols_oqpsk = downsample_oqpsk_symbols(symbols_all, SPS_INT, symbol_offset=offset_int)
+            for conv in ("IQ", "QI"):
+                bits_candidate, label = make_candidate(symbols_oqpsk, conv)
+                pos = find_asm_positions(bits_candidate, max_hamming=1)
+                if pos:
+                    log.info("  ✓ ASM trouve OQPSK %s + NRZ-M : %d positions en %.1f s",
+                             label, len(pos), time.perf_counter() - t4)
+                    positions, bits_active, variant_label = pos, bits_candidate, f"OQPSK-{label}+NRZ-M"
                     break
+        except Exception as exc:
+            log.debug("  OQPSK downsampling echoue : %s", exc)
+
+    # Variante 3 : sans NRZ-M (ancien comportement, fallback)
+    if not positions:
+        log.info("  Tentative sans NRZ-M (fallback)...")
+        for conv in ("IQ", "QI"):
+            if conv == "IQ":
+                raw = symbols_to_bits_iq(symbols_qpsk)
+            else:
+                raw = symbols_to_bits_qi(symbols_qpsk)
+            pos = find_asm_positions(raw, max_hamming=1)
+            if pos:
+                log.info("  ✓ ASM trouve sans NRZ-M %s : %d positions", conv, len(pos))
+                positions, bits_active, variant_label = pos, raw, f"QPSK-{conv}-noNRZ"
+                break
+
+    # Variante 4 : inversion I ou Q + NRZ-M
+    if not positions:
+        log.warning("⚠ Aucun ASM apres variantes QPSK/OQPSK - tentative inversions I/Q...")
+        for flip_i, flip_q in [(True, False), (False, True), (True, True)]:
+            sym_test = symbols_qpsk.copy()
+            if flip_i:
+                sym_test = (sym_test.real * (-1) + 1j * sym_test.imag).astype(np.complex64)
+            if flip_q:
+                sym_test = (sym_test.real + 1j * sym_test.imag * (-1)).astype(np.complex64)
+            bits_test = nrzm_decode(symbols_to_bits_iq(sym_test))
+            pos_test = find_asm_positions(bits_test, max_hamming=1)
+            if pos_test:
+                label = f"flip_i={flip_i},flip_q={flip_q}+NRZ-M"
+                log.info("  ✓ ASM trouve avec %s : %d positions", label, len(pos_test))
+                positions, bits_active, variant_label = pos_test, bits_test, label
+                break
+
+    if positions:
+        log.info("  Variante retenue : %s", variant_label)
 
     if not positions:
         log.error("✖ Aucun ASM trouve - signal absent, offset frequence incorrect, "
