@@ -96,3 +96,31 @@ def compute_trajectory(
             )
         )
     return points
+
+
+def interpolate_azel(
+    trajectory: list[TrajectoryPoint],
+    elapsed_s: float,
+) -> tuple[float, float]:
+    """Interpolation lineaire AZ/EL sur la trajectoire au temps elapsed_s.
+
+    Retourne (azimuth_deg, elevation_deg). Gere le wrap azimut 0/360 par le
+    chemin le plus court (delta dans [-180, 180]).
+    Leve ValueError si la trajectoire est vide.
+    """
+    if not trajectory:
+        raise ValueError("trajectoire vide")
+    if elapsed_s <= trajectory[0].seconds_from_start:
+        return trajectory[0].azimuth_deg, trajectory[0].elevation_deg
+    if elapsed_s >= trajectory[-1].seconds_from_start:
+        return trajectory[-1].azimuth_deg, trajectory[-1].elevation_deg
+    for i in range(len(trajectory) - 1):
+        a, b = trajectory[i], trajectory[i + 1]
+        if a.seconds_from_start <= elapsed_s <= b.seconds_from_start:
+            span = b.seconds_from_start - a.seconds_from_start
+            t = (elapsed_s - a.seconds_from_start) / span if span > 0.0 else 0.0
+            diff_az = (b.azimuth_deg - a.azimuth_deg + 540.0) % 360.0 - 180.0
+            az = (a.azimuth_deg + t * diff_az) % 360.0
+            el = a.elevation_deg + t * (b.elevation_deg - a.elevation_deg)
+            return az, el
+    return trajectory[-1].azimuth_deg, trajectory[-1].elevation_deg

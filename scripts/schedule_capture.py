@@ -82,6 +82,10 @@ def main() -> None:
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--device", default="hackrf_transfer", choices=["hackrf_transfer", "rtl_sdr"])
     parser.add_argument("--output-dir", default=PROJECT_ROOT / "data" / "raw", type=Path)
+    parser.add_argument(
+        "--rotator-port", default=None, metavar="PORT",
+        help="port serie EXOS-II pour le pointage automatique (ex: /dev/ttyUSB0)",
+    )
     args = parser.parse_args()
 
     start_at_utc = _parse_start_at(args.start_at)
@@ -103,6 +107,9 @@ def main() -> None:
         "amplifier_enabled": args.amp,
         "start_at_utc": start_at_utc.isoformat(),
         "output_dir": str(args.output_dir),
+        "observer_lat": args.lat,
+        "observer_lon": args.lon,
+        "rotator_port": args.rotator_port,
         "trajectory": [
             {"seconds_from_start": p.seconds_from_start, "elevation_deg": p.elevation_deg, "azimuth_deg": p.azimuth_deg}
             for p in trajectory

@@ -1,7 +1,7 @@
 import pytest
 from skyfield.api import load
 
-from satrx.tracking.passes import compute_trajectory, find_passes
+from satrx.tracking.passes import TrajectoryPoint, compute_trajectory, find_passes, interpolate_azel
 from satrx.tracking.station import GroundStation
 from satrx.tracking.tle import load_satellite
 
@@ -50,3 +50,55 @@ class TestComputeTrajectory:
 
         max_point = max(points, key=lambda p: p.elevation_deg)
         assert max_point.elevation_deg == pytest.approx(sat_pass.max_elevation_deg, abs=1.0)
+
+
+def _make_traj(*points: tuple[float, float, float]) -> list[TrajectoryPoint]:
+    return [TrajectoryPoint(seconds_from_start=s, azimuth_deg=az, elevation_deg=el) for s, az, el in points]
+
+
+class TestInterpolateAzel:
+
+    def test_nominal_midpoint(self) -> None:
+        traj = _make_traj((0.0, 10.0, 20.0), (100.0, 50.0, 40.0))
+        az, el = interpolate_azel(traj, 50.0)
+        assert az == pytest.approx(30.0, abs=0.01)
+        assert el == pytest.approx(30.0, abs=0.01)
+
+    def test_clamp_before_start(self) -> None:
+        traj = _make_traj((10.0, 90.0, 5.0), (100.0, 180.0, 30.0))
+        az, el = interpolate_azel(traj, 0.0)
+        assert az == pytest.approx(90.0)
+        assert el == pytest.approx(5.0)
+
+    def test_clamp_after_end(self) -> None:
+        traj = _make_traj((0.0, 90.0, 5.0), (100.0, 180.0, 30.0))
+        az, el = interpolate_azel(traj, 999.0)
+        assert az == pytest.approx(180.0)
+        assert el == pytest.approx(30.0)
+
+    def test_azimuth_wrap_350_to_10(self) -> None:
+        # le chemin le plus court de 350 a 10 passe par 0 (delta +20, pas -340)
+        traj = _make_traj((0.0, 350.0, 10.0), (100.0, 10.0, 30.0))
+        az, el = interpolate_azel(traj, 50.0)
+        # mi-chemin : 350 + 0.5 * (+20) = 360 % 360 = 0
+        assert az == pytest.approx(0.0, abs=0.5)
+
+    def test_empty_trajectory_raises(self) -> None:
+        with pytest.raises(ValueError, match="vide"):
+            interpolate_azel([], 50.0)
+
+    def test_exact_boundary_point(self) -> None:
+        traj = _make_traj((0.0, 45.0, 10.0), (200.0, 135.0, 60.0), (400.0, 270.0, 5.0))
+        az, el = interpolate_azel(traj, 200.0)
+        assert az == pytest.approx(135.0, abs=0.01)
+        assert el == pytest.approx(60.0, abs=0.01)
+
+    def test_interop_with_compute_trajectory(self) -> None:
+        ts = load.timescale()
+        satellite = load_satellite("ISS (ZARYA)", ISS_LINE1, ISS_LINE2)
+        start = ts.utc(2024, 3, 20)
+        traj = compute_trajectory(satellite, PARIS, start, duration_s=600.0, n_samples=20)
+        # l'interpolation a t=300 doit etre dans les bornes physiques
+        az, el = interpolate_azel(traj, 300.0)
+        assert 0.0 <= az < 360.0
+        assert -90.0 <= el <= 90.0

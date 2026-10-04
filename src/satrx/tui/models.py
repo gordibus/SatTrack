@@ -93,6 +93,7 @@ class AppConfig:
     tle_refresh_hours: int = 24
     raw_dir: str = "data/raw"
     processed_dir: str = "data/processed"
+    rotator_port: str = ""   # port serie EXOS-II, vide = pas de rotateur
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -108,6 +109,7 @@ class AppConfig:
             "tle_refresh_hours": self.tle_refresh_hours,
             "raw_dir": self.raw_dir,
             "processed_dir": self.processed_dir,
+            "rotator_port": self.rotator_port,
         }
 
     @staticmethod
