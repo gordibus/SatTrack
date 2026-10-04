@@ -1345,21 +1345,6 @@ files = [
 diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
-name = "pyserial"
-version = "3.5"
-description = "Python Serial Port Extension"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0"},
-    {file = "pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb"},
-]
-
-[package.extras]
-cp2110 = ["hidapi"]
-
-[[package]]
 name = "pytest"
 version = "8.4.2"
 description = "pytest: simple powerful testing with Python"
@@ -1759,4 +1744,4 @@ test = ["coverage", "pytest", "pytest-cov"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "d8cdf8eea5ff2857571d6c0ac823ba2400dfc7c53cf296a28ac1413306fc04bb"
+content-hash = "20e243862d7a098df10c2d8e225c0e9ab991090446ac5d027e2c314f0422a73d"

@@ -20,12 +20,3 @@ data/processed/*
 .mypy_cache/
 .vscode/
 .idea/
-
-# Fichiers internes de session (non destines au depot public)
-CLAUDE.md
-CONTEXT.md
-docs/f9_rotateur/prompt_opus_f9.md
-
-# Sorties temporaires / scripts de session
-output/
-data/scheduled_tasks.json

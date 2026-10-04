@@ -12,7 +12,7 @@
 - [ ] SHOULD F6 - Reception bande L HRPT (parabole + suivi), haute resolution - Gordibus - `src/satrx/tracking/`, `antenna/`
 - [~] SHOULD F7 - Decodage trame de telemetrie CCSDS - Naywvi - `src/satrx/telemetry/` (moteur d'extraction generique pret : temps CUC + `parse_onboard_time` (structure heure/min/sec/ms confirmee dans le decodeur LRPT reel), extraction de parametres bit a bit avec echelle/offset ; synchro+degroupage deja couverts par F4 ; **APID 70 = telemetrie confirme** (conflit initial resolu par une 3e source), mapping image `METEOR_LRPT_APID_CHANNELS` corrige avec le mapping reel de METEOR-M2 3 (64,65,67))
 - [x] SHOULD F8 - Analyse de securite "clair vs protege" + demonstration - Naywvi - `src/satrx/security/` (classification par entropie de Shannon, demo AES-256-GCM, doc `docs/analyse_securite_f8.md` ; pas encore exerce sur de vraies donnees LRPT/telemetrie decodees, seulement synthetiques)
-- [x] SHOULD F9 - Pointage d'antenne assiste ou motorise - Gordibus - `src/satrx/antenna/` (architecture + 7 STL + BOM + protocole Hamlib serial dans `docs/f9_rotateur/` ; implementation Python `rotator.py` + `serial_backend.py` + `az_el_clamp`/`RotatorController.track_pass` consommant les `TrajectoryPoint` de F2 ; 16 tests verts, mypy/ruff propres. Reste couvert par tests/integration : aller-retour serie reel Arduino, cf. note materiel flip AZ/EL 0-180/0-90 dans le backlog)
+- [ ] SHOULD F9 - Pointage d'antenne assiste ou motorise - Gordibus - `src/satrx/antenna/`
 - [x] COULD F10 - Automatisation de la capture sur passage programme - commun - `src/satrx/acquisition/`, `scripts/`, `src/satrx/tui/` (capture programmee a une heure donnee + TUI cyberpunk en direct via Textual, satellite anime sur trajectoire reelle ; valide par une vraie capture le 16/08)
 - [x] COULD F11 - Tableau de bord de visualisation (images et metadonnees) - commun - `src/satrx/dashboard/` (scan des sidecars de capture + images decodees, rapport HTML statique autonome, images encodees en donnees embarquees), `scripts/generate_dashboard.py` ; teste de bout en bout sur les 4 vraies captures du 16/08/2026
 - [x] COULD F12 - Comparaison avec un reseau resilient (Meshtastic) - commun - `docs/comparaison_reseau_resilient_f12.md` (analyse documentaire/architecturale : topologie diffusion vs maillage, resilience aux pannes, disponibilite temporelle, debit, securite ; aucun materiel Meshtastic teste, explicitement signale comme tel)
@@ -26,9 +26,4 @@
 - [ ] GESTION B5 - Administration a distance authentifiee et chiffree (mTLS)
 - [ ] GESTION B6 - Rapatriement a la demande des donnees collectees
 - [ ] GESTION B7 - Remontee automatique store-and-forward (serveur/e-mail)
-- [ ] AUDIT B8 - Evaluation de securite cadree - volet passif (equipements de l'equipe / autorisation ecrite) + volet audit lab operateur (cf. cahier des charges § B8)
-  - [~] B8-LAB-CAPTURE  : capture IQ GMR-1/GMR-2 - simulation pure Python faite ; volet HackRF cage Faraday reste a faire
-  - [x] B8-LAB-DEMOD    : demodulation + extraction de trames (reverse-engineering protocolaire GMR-1/GMR-2)
-  - [x] B8-LAB-CRYPTO   : cryptanalyse A5/GMR-1 sur trafic capte en lab (recover_keystream + brute_force_r1 + verify_state)
-  - [x] B8-LAB-FRAUD    : analyse de patterns de fraude (sessions simulees : clonage identifiant, usage sans facturation)
-  - [x] B8-LAB-REPORT   : rapport d'audit complet + playbook Blue Team + regles SIEM pour l'operateur
+- [ ] AUDIT B8 - Evaluation de securite cadree (equipements de l'equipe / autorisation ecrite uniquement)

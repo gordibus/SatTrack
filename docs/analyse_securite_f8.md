@@ -2,7 +2,7 @@
 
 > Document de synthèse pour le rapport technique / la soutenance. Périmètre strictement
 > défensif et informatif : réception passive de diffusions ouvertes, aucune action contre
-> des systèmes tiers. Cohérent avec le cadre légal du projet (cf. cahier des charges).
+> des systèmes tiers. Cohérent avec le cadre légal du projet (cf. `CLAUDE.md`).
 
 ## 1. Constat général
 

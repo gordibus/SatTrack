@@ -2,7 +2,7 @@
 name = "satrx"
 version = "0.1.0"
 description = "Chaine de reception, suivi et decodage de signaux satellitaires par SDR (Projet Annuel ESGI 5SIJ)"
-authors = ["Gordibus Hilaloglu <kevinhilalog@gmail.com>"]
+authors = ["Kevin Hilaloglu <kevinhilalog@gmail.com>"]
 packages = [{ include = "satrx", from = "src" }]
 
 [tool.poetry.dependencies]
@@ -13,7 +13,6 @@ skyfield = "^1.49"
 matplotlib = "^3.8"
 textual = "^8.2.8"
 cryptography = "^50.0.0"
-pyserial = "^3.5"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -37,14 +36,3 @@ strict = true
 [[tool.mypy.overrides]]
 module = "skyfield.*"
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# pyserial ne fournit pas de stubs (pas de py.typed).
-module = "serial.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# Textual ne fournit pas de stubs complets : call_from_thread et les methodes
-# de worker ne sont pas annotees dans la version installee.
-module = "satrx.tui.*"
-disable_error_code = ["attr-defined"]

@@ -23,7 +23,7 @@ résiste.
 | Infrastructure requise | Un satellite en orbite, déjà lancé et opérationnel - l'équipe ne contrôle et ne peut réparer aucun élément de la chaîne d'émission | Aucune infrastructure fixe : les nœuds eux-mêmes forment le réseau, déployables/reconfigurables à volonté |
 | Point de défaillance unique | Oui, structurel : la perte du satellite (fin de vie, panne) coupe la diffusion pour toute une région du globe, sans recours | Non par conception : la perte d'un nœud est contournée par un autre chemin de relais si le maillage est assez dense |
 | Portée d'un lien élémentaire | Très grande (des centaines à ~2500km au sol pour une orbite basse comme Meteor-M, cf. `tracking/passes.py`), mais **un seul lien**, non redondant | Faible par saut (de l'ordre du kilomètre à quelques kilomètres en LoRa, très dépendant du terrain et des obstacles), mais **redondant** via le relais multi-sauts |
-| Sens de communication | Descendant uniquement (broadcast) tel qu'implémenté dans ce projet - aucune voie de retour vers le satellite (émission non autorisée par le cahier des charges) | Bidirectionnel : chaque nœud peut émettre et recevoir |
+| Sens de communication | Descendant uniquement (broadcast) tel qu'implémenté dans ce projet - aucune voie de retour vers le satellite (émission non autorisée par le cahier des charges, cf. `CLAUDE.md` § Hors périmètre) | Bidirectionnel : chaque nœud peut émettre et recevoir |
 
 ## 3. Résilience - ce que chaque architecture encaisse bien ou mal
 

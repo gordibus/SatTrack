@@ -1,10 +1,3 @@
-from satrx.demod.afsk import (
-    BELL202,
-    AfskParams,
-    bits_to_bytes,
-    decode_afsk_ascii,
-    demodulate_afsk_bits,
-)
 from satrx.demod.costas import (
     QPSK_AMBIGUOUS_ROTATIONS_DEG,
     AmbiguityResolution,
@@ -22,11 +15,6 @@ from satrx.demod.qpsk import (
 from satrx.demod.timing_recovery import estimate_symbol_timing_offset, extract_symbols_at_offset
 
 __all__ = [
-    "BELL202",
-    "AfskParams",
-    "bits_to_bytes",
-    "decode_afsk_ascii",
-    "demodulate_afsk_bits",
     "ComplexSamples",
     "downsample_to_symbol_rate",
     "downsample_oqpsk_symbols",
