@@ -1,3 +1,10 @@
+from satrx.acquisition.satellite_catalog import (
+    CATALOG,
+    SatelliteRFProfile,
+    hackrf_center_with_ppm,
+    lookup_by_name,
+    lookup_by_norad,
+)
 from satrx.acquisition.commands import (
     build_hackrf_transfer_command,
     build_recording_filename,
@@ -14,6 +21,11 @@ from satrx.acquisition.recorder import (
 )
 
 __all__ = [
+    "CATALOG",
+    "SatelliteRFProfile",
+    "hackrf_center_with_ppm",
+    "lookup_by_name",
+    "lookup_by_norad",
     "RecordingParams",
     "SdrDevice",
     "duration_from_pass",

@@ -28,16 +28,23 @@ class RecordingMetadata:
     output_file: str
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        d: dict[str, object] = {
             "satellite_name": self.params.satellite_name,
             "device": self.device.value,
             "center_freq_hz": self.params.center_freq_hz,
             "sample_rate_hz": self.params.sample_rate_hz,
             "duration_s": self.params.duration_s,
             "gain_db": self.params.gain_db,
+            "ppm_correction": self.params.ppm_correction,
             "start_time_utc": self.start_time_utc.astimezone(timezone.utc).isoformat(),
             "output_file": self.output_file,
         }
+        # Champs optionnels presents seulement si renseignes dans RecordingParams
+        if self.params.satellite_freq_hz is not None:
+            d["satellite_freq_hz"] = self.params.satellite_freq_hz
+        if self.params.freq_offset_khz is not None:
+            d["freq_offset_khz"] = self.params.freq_offset_khz
+        return d
 
 
 def write_metadata_sidecar(metadata: RecordingMetadata, path: Path) -> None:

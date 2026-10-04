@@ -471,9 +471,10 @@ def main() -> None:
         help="Taille du segment a traiter (Mo). 50 Mo ~ 12 s de signal.",
     )
     parser.add_argument(
-        "--freq-offset-khz", type=float, default=200.0,
-        help="Decalage frequence en kHz entre le centre HackRF et le signal LRPT "
-             "(137.9 MHz - 137.7 MHz = +200 kHz)",
+        "--freq-offset-khz", type=float, default=None,
+        help="Decalage frequence en kHz entre le centre HackRF et le signal LRPT. "
+             "Si omis, lu automatiquement depuis le sidecar JSON (champ freq_offset_khz). "
+             "Defaut si non trouve : 200.0 kHz (signal a +200 kHz du centre).",
     )
     parser.add_argument(
         "--out-dir", type=Path, default=Path("data/processed"),
@@ -489,11 +490,35 @@ def main() -> None:
         log.error("✖ Fichier introuvable : %s", args.iq_file)
         sys.exit(1)
 
+    # Lire freq_offset_khz depuis le sidecar JSON si non fourni en argument
+    freq_offset_khz = args.freq_offset_khz
+    if freq_offset_khz is None:
+        sidecar = args.iq_file.with_suffix(args.iq_file.suffix + ".json")
+        if sidecar.exists():
+            try:
+                import json as _json
+                meta = _json.loads(sidecar.read_text())
+                freq_offset_khz = float(meta["freq_offset_khz"])
+                sat_freq = meta.get("satellite_freq_hz")
+                log.info(
+                    "✓ freq_offset_khz=%.1f kHz lu depuis sidecar (satellite : %.4f MHz, "
+                    "centre HackRF : %.4f MHz)",
+                    freq_offset_khz,
+                    (sat_freq or 0) / 1e6,
+                    meta.get("center_freq_hz", 0) / 1e6,
+                )
+            except (KeyError, ValueError, Exception):
+                freq_offset_khz = 200.0
+                log.info("⚠ freq_offset_khz absent du sidecar - defaut 200.0 kHz")
+        else:
+            freq_offset_khz = 200.0
+            log.info("⚠ Pas de sidecar JSON - freq_offset_khz defaut 200.0 kHz")
+
     run_pipeline(
         iq_path=args.iq_file,
         offset_mb=args.offset_mb,
         chunk_mb=args.chunk_mb,
-        freq_offset_khz=args.freq_offset_khz,
+        freq_offset_khz=freq_offset_khz,
         out_dir=args.out_dir,
         max_frames=args.max_frames,
     )

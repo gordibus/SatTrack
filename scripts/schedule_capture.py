@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from skyfield.api import load  # noqa: E402
 
+from satrx.acquisition.satellite_catalog import hackrf_center_with_ppm, lookup_by_name  # noqa: E402
 from satrx.tracking.passes import compute_trajectory  # noqa: E402
 from satrx.tracking.station import GroundStation  # noqa: E402
 from satrx.tracking.tle import parse_tle_text  # noqa: E402
@@ -63,7 +64,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--satellite", required=True)
     parser.add_argument("--tle-file", required=True, type=Path)
-    parser.add_argument("--freq-mhz", required=True, type=float)
+    parser.add_argument(
+        "--freq-mhz", default=None, type=float,
+        help="Frequence HackRF en MHz (centre, apres offset DC). Si omis, calculee "
+             "automatiquement depuis le catalogue satellite avec offset -200 kHz.",
+    )
     parser.add_argument("--sample-rate-msps", default=2.048, type=float)
     parser.add_argument("--duration-s", required=True, type=float)
     parser.add_argument("--start-at", required=True, help="HH:MM:SS (aujourd'hui) ou ISO complet")
@@ -76,8 +81,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--gain-db", default=30.0, type=float,
-        help="gain VGA/baseband HackRF, 0-62dB par pas de 2 (defaut 30 ; a 0/None hackrf_transfer "
-        "ne fixe pas ce gain explicitement, ce qui a probablement nui a la reception du 16/08)",
+        help="gain VGA/baseband HackRF, 0-62dB par pas de 2 (defaut 30)",
     )
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--device", default="hackrf_transfer", choices=["hackrf_transfer", "rtl_sdr"])
@@ -86,7 +90,40 @@ def main() -> None:
         "--rotator-port", default=None, metavar="PORT",
         help="port serie EXOS-II pour le pointage automatique (ex: /dev/ttyUSB0)",
     )
+    parser.add_argument(
+        "--ppm", default=300, type=int,
+        help="correction PPM de l'oscillateur HackRF (defaut 300 ppm mesure sur ce materiel)",
+    )
     args = parser.parse_args()
+
+    # Frequence : catalogue automatique ou valeur manuelle
+    profile = lookup_by_name(args.satellite)
+    if args.freq_mhz is not None:
+        # Valeur manuelle fournie : l'utilisateur sait ce qu'il fait
+        center_freq_hz = args.freq_mhz * 1e6
+        satellite_freq_hz = center_freq_hz
+        freq_offset_khz = 0.0
+        print(f"⚠ Frequence manuelle : {args.freq_mhz} MHz (offset DC non applique automatiquement)")
+    elif profile is not None:
+        # Catalogue : offset DC (centre desiree = tx_freq + lo_offset)
+        # La correction PPM est appliquee dans build_hackrf_transfer_command
+        # via RecordingParams.center_freq_hz_ppm_corrected - on stocke la freq desiree ici.
+        center_freq_hz = profile.hackrf_center_hz
+        satellite_freq_hz = profile.tx_freq_hz
+        freq_offset_khz = profile.freq_offset_khz
+        corrected_cmd = hackrf_center_with_ppm(profile, args.ppm)
+        print(
+            f"✓ Catalogue : {profile.name} - "
+            f"freq satellite {profile.tx_freq_hz/1e6:.4f} MHz, "
+            f"centre desire {center_freq_hz/1e6:.4f} MHz, "
+            f"commande HackRF apres PPM {corrected_cmd/1e6:.4f} MHz "
+            f"(offset -{freq_offset_khz:.0f} kHz, PPM {args.ppm})"
+        )
+    else:
+        print(f"⚠ Satellite '{args.satellite}' inconnu du catalogue, offset DC non applique")
+        center_freq_hz = 137_700_000.0
+        satellite_freq_hz = 137_900_000.0
+        freq_offset_khz = 200.0
 
     start_at_utc = _parse_start_at(args.start_at)
     station = GroundStation(name="station", latitude_deg=args.lat, longitude_deg=args.lon, elevation_m=args.elevation_m)
@@ -99,7 +136,10 @@ def main() -> None:
     plan = {
         "satellite_name": args.satellite,
         "device": args.device,
-        "center_freq_hz": args.freq_mhz * 1e6,
+        "center_freq_hz": center_freq_hz,
+        "satellite_freq_hz": satellite_freq_hz,
+        "freq_offset_khz": freq_offset_khz,
+        "ppm_correction": args.ppm,
         "sample_rate_hz": args.sample_rate_msps * 1e6,
         "duration_s": args.duration_s,
         "lna_gain_db": args.lna_gain_db,

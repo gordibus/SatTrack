@@ -20,6 +20,9 @@ class RecordingParams:
     gain_db: float | None = None
     lna_gain_db: float | None = None
     amplifier_enabled: bool = False
+    ppm_correction: int = 0
+    satellite_freq_hz: float | None = None
+    freq_offset_khz: float | None = None
 
     def __post_init__(self) -> None:
         if not self.satellite_name.strip():
@@ -34,6 +37,18 @@ class RecordingParams:
             raise ValueError(f"gain_db doit etre >= 0 si fourni, recu {self.gain_db}")
         if self.lna_gain_db is not None and self.lna_gain_db < 0.0:
             raise ValueError(f"lna_gain_db doit etre >= 0 si fourni, recu {self.lna_gain_db}")
+
+    @property
+    def center_freq_hz_ppm_corrected(self) -> float:
+        """Frequence a commander au HackRF apres correction PPM.
+
+        Si ppm_correction=0, retourne center_freq_hz inchange.
+        Sinon applique : freq_cmd = center_freq / (1 + ppm/1e6)
+        pour compenser le drift de l'oscillateur HackRF.
+        """
+        if self.ppm_correction == 0:
+            return self.center_freq_hz
+        return self.center_freq_hz / (1.0 + self.ppm_correction / 1_000_000.0)
 
 
 def duration_from_pass(sat_pass: SatellitePass) -> float:
