@@ -13,7 +13,9 @@ from textual.widgets import Button, Log, Static
 
 from satrx.tui.models import AppConfig, ScheduledTask
 from satrx.tui.satellite_widget import SatelliteSkyWidget
-from satrx.tracking.passes import TrajectoryPoint
+from satrx.tracking.passes import TrajectoryPoint, interpolate_azel
+
+_GOTO_INTERVAL_S: float = 5.0
 
 
 class ActiveTab(Vertical):
@@ -32,6 +34,13 @@ class ActiveTab(Vertical):
         border: round #00fff2;
         padding: 0 2;
         background: #0a0a14;
+    }
+    #rotator-status {
+        height: 3;
+        border: round #1a6b66;
+        padding: 0 2;
+        background: #0a0a14;
+        color: #0dd3c4;
     }
     #sky-active {
         height: 13;
@@ -65,6 +74,8 @@ class ActiveTab(Vertical):
     _power_dbfs: reactive[Optional[float]] = reactive(None)
     _doppler_hz: reactive[Optional[float]] = reactive(None)
     _auto_decode: reactive[bool] = reactive(False)
+    _rotator_azel: reactive[Optional[tuple[float, float]]] = reactive(None)
+    _rotator_msg: reactive[str] = reactive("")
 
     def __init__(
         self,
@@ -76,12 +87,14 @@ class ActiveTab(Vertical):
         self._config = config
         self._raw_dir = raw_dir
         self._trajectory: list[TrajectoryPoint] = []
+        self._task_active: bool = False
 
     def compose(self) -> ComposeResult:
         yield Static("Aucune capture active.", id="idle-panel")
         yield Static("", id="active-status")
         yield SatelliteSkyWidget([], id="sky-active")
         yield Static("", id="active-stats")
+        yield Static("", id="rotator-status")
         with Horizontal(id="active-actions"):
             yield Button("⚙ Decoder a la fin", id="btn-decode-after", variant="primary")
             yield Button("✗ Annuler la capture", id="btn-abort", variant="error")
@@ -96,6 +109,7 @@ class ActiveTab(Vertical):
         self.query_one("#active-status").display = False
         self.query_one("#sky-active").display = False
         self.query_one("#active-stats").display = False
+        self.query_one("#rotator-status").display = False
         self.query_one("#active-actions").display = False
         self.query_one("#active-log").display = False
 
@@ -104,6 +118,7 @@ class ActiveTab(Vertical):
         self.query_one("#active-status").display = True
         self.query_one("#sky-active").display = True
         self.query_one("#active-stats").display = True
+        self.query_one("#rotator-status").display = bool(self._config.rotator_port)
         self.query_one("#active-actions").display = True
         self.query_one("#active-log").display = True
 
@@ -112,6 +127,9 @@ class ActiveTab(Vertical):
         self._elapsed_s = 0.0
         self._power_dbfs = None
         self._auto_decode = False
+        self._rotator_azel = None
+        self._rotator_msg = ""
+        self._task_active = True
         self._trajectory = self._compute_trajectory(task)
         sky = self.query_one("#sky-active", SatelliteSkyWidget)
         sky._trajectory = self._trajectory
@@ -121,6 +139,8 @@ class ActiveTab(Vertical):
         sky.active = True
         self._show_active()
         self._run_capture_worker(task)
+        if self._config.rotator_port:
+            self._run_tracking_worker(task)
 
     def _compute_trajectory(self, task: ScheduledTask) -> list[TrajectoryPoint]:
         try:
@@ -169,7 +189,7 @@ class ActiveTab(Vertical):
             )
             sat = fetch_tle_celestrak(task.norad_id, timeout_s=3.0)
             t_now = ts.from_datetime(datetime.now(timezone.utc))
-            nominal = task.center_freq_hz + 200_000.0  # freq nominale estimee
+            nominal = task.center_freq_hz + 200_000.0
             self._doppler_hz = doppler_shift_hz(sat, station, t_now, nominal)
         except Exception:
             pass
@@ -195,6 +215,20 @@ class ActiveTab(Vertical):
             f"[bold]Puissance[/] {pwr}   "
             f"[bold]Doppler[/] {dop}"
         )
+
+        if self._config.rotator_port:
+            rot_panel = self.query_one("#rotator-status", Static)
+            if self._rotator_azel is not None:
+                az, el = self._rotator_azel
+                rot_panel.update(
+                    f"[bold]ROTATEUR[/] {self._config.rotator_port}   "
+                    f"[bold]CIBLE[/] AZ {az:.1f}  EL {el:.1f}   "
+                    f"[bold]REPONSE[/] {self._rotator_msg or '-'}"
+                )
+            else:
+                rot_panel.update(
+                    f"[bold]ROTATEUR[/] {self._config.rotator_port}   en attente..."
+                )
 
     @work(exclusive=True, thread=False)
     async def _run_capture_worker(self, task: ScheduledTask) -> None:
@@ -235,12 +269,67 @@ class ActiveTab(Vertical):
         process.wait()
         write_metadata_sidecar(metadata, output_path.with_suffix(output_path.suffix + ".json"))
         task.status = "termine"
+        self._task_active = False
         sky = self.query_one("#sky-active", SatelliteSkyWidget)
         sky.active = False
         log.write_line(f"✓ Termine. Fichier : {output_path}")
 
         if self._auto_decode and task.output_file:
             self.app.notify(f"Capture terminee - lancement du decodage de {output_path.name}")
+
+    @work(exclusive=False, thread=False)
+    async def _run_tracking_worker(self, task: ScheduledTask) -> None:
+        """Boucle de pointage automatique EXOS-II pendant la tache planifiee.
+
+        Tourne en parallele de _run_capture_worker. Envoie une commande GOTO
+        toutes les _GOTO_INTERVAL_S secondes en interpolant AZ/EL sur la
+        trajectoire calculee. S'arrete quand la tache n'est plus active.
+        """
+        from satrx.antenna.exos2_backend import ExosIIBackend
+
+        log = self.query_one(Log)
+        port = self._config.rotator_port
+        if not port:
+            return
+
+        backend = ExosIIBackend(
+            port,
+            observer_lat=self._config.latitude_deg,
+            observer_lon=self._config.longitude_deg,
+        )
+        loop = asyncio.get_running_loop()
+
+        try:
+            await loop.run_in_executor(None, backend.connect)
+            log.write_line(f"✓ Rotateur EXOS-II connecte sur {port}")
+        except Exception as exc:
+            log.write_line(f"✖ Rotateur : connexion echouee sur {port} ({exc})")
+            self._rotator_msg = "ERREUR connexion"
+            return
+
+        try:
+            while self._task_active and self._current_task is task:
+                elapsed = self._elapsed_s
+                if self._trajectory:
+                    try:
+                        az, el = interpolate_azel(self._trajectory, elapsed)
+                        self._rotator_azel = (az, el)
+                        if el >= 5.0:
+                            cmd = f"AZ{az:.1f} EL{el:.1f}"
+                            result = await loop.run_in_executor(
+                                None, backend.send_command, cmd
+                            )
+                            self._rotator_msg = result
+                            log.write_line(f"GOTO {cmd} -> {result}")
+                        else:
+                            self._rotator_msg = f"sous horizon ({el:.1f} deg)"
+                    except Exception as exc:
+                        self._rotator_msg = f"ERROR:{exc}"
+                        log.write_line(f"✖ Tracking : {exc}")
+                await asyncio.sleep(_GOTO_INTERVAL_S)
+        finally:
+            await loop.run_in_executor(None, backend.disconnect)
+            log.write_line("Rotateur deconnecte")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-decode-after":
@@ -250,5 +339,6 @@ class ActiveTab(Vertical):
         elif event.button.id == "btn-abort":
             if self._current_task is not None:
                 self._current_task.status = "annule"
+                self._task_active = False
                 self._current_task = None
                 self._show_idle()

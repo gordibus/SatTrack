@@ -117,6 +117,17 @@ class ConfigTab(Vertical):
             yield Label("Refresh TLE (heures)", classes="field-label")
             yield Input(str(self._config.tle_refresh_hours), id="cfg-tle-h", classes="field-input")
 
+        yield Label("Rotateur EXOS-II", classes="section-title")
+
+        with Horizontal(classes="field-row"):
+            yield Label("Port serie", classes="field-label")
+            yield Input(
+                self._config.rotator_port,
+                placeholder="/dev/ttyUSB0  (vide = desactive)",
+                id="cfg-rotator-port",
+                classes="field-input",
+            )
+
         yield Static("", id="hw-status-panel")
 
         with Horizontal(id="config-actions"):
@@ -152,6 +163,7 @@ class ConfigTab(Vertical):
             self._config.raw_dir = _v("cfg-raw-dir")
             self._config.processed_dir = _v("cfg-proc-dir")
             self._config.tle_refresh_hours = int(_v("cfg-tle-h"))
+            self._config.rotator_port = _v("cfg-rotator-port")
 
             if self._config_path is not None:
                 save_config(self._config_path, self._config)
@@ -174,11 +186,13 @@ class ConfigTab(Vertical):
         self.query_one("#cfg-raw-dir", Input).value = default.raw_dir
         self.query_one("#cfg-proc-dir", Input).value = default.processed_dir
         self.query_one("#cfg-tle-h", Input).value = str(default.tle_refresh_hours)
+        self.query_one("#cfg-rotator-port", Input).value = default.rotator_port
 
     @work(thread=True)
     def _detect_hardware(self) -> None:
         from satrx.tui.hardware import format_hardware_panel
-        hw = detect_hardware()
+        rotator_port = self._config.rotator_port
+        hw = detect_hardware(rotator_port=rotator_port)
         freq = 137_700_000.0
         panel = format_hardware_panel(hw, freq)
         self.app.call_from_thread(

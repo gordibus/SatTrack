@@ -17,6 +17,7 @@ from satrx.antenna.exos2_backend import (
     build_goto_frame,
     build_stop_frame,
     build_park_frame,
+    build_get_site_location_frame,
     parse_position_frame,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "build_goto_frame",
     "build_stop_frame",
     "build_park_frame",
+    "build_get_site_location_frame",
     "parse_position_frame",
 ]

@@ -35,12 +35,16 @@ def build_rtl_sdr_command(params: RecordingParams, output_path: Path) -> list[st
 
 def build_hackrf_transfer_command(params: RecordingParams, output_path: Path) -> list[str]:
     n_samples = int(params.duration_s * params.sample_rate_hz)
+    # Appliquer la correction PPM sur la frequence commandee.
+    # Si PPM > 0 (oscillateur trop haut), on commande une freq legerement plus basse
+    # pour que l'OL reel soit a center_freq_hz.
+    tuned_freq = int(round(params.center_freq_hz_ppm_corrected))
     command = [
         "hackrf_transfer",
         "-r",
         str(output_path),
         "-f",
-        str(int(params.center_freq_hz)),
+        str(tuned_freq),
         "-s",
         str(int(params.sample_rate_hz)),
         "-n",

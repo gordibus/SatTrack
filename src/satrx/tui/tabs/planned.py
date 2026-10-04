@@ -9,6 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Label, Static
 
+from satrx.acquisition.satellite_catalog import hackrf_center_with_ppm, lookup_by_name
 from satrx.tui.hardware import detect_hardware, format_hardware_panel
 from satrx.tui.models import AppConfig, PassInfo, ScheduledTask, save_scheduled_tasks
 
@@ -166,8 +167,16 @@ class PlannedTab(Vertical):
             )
 
     def add_task_from_pass(self, p: PassInfo, config: AppConfig) -> ScheduledTask:
-        """Cree et ajoute une tache planifiee a partir d'un PassInfo."""
-        freq_hz = _guess_freq_hz(p.satellite_name)
+        """Cree et ajoute une tache planifiee a partir d'un PassInfo.
+
+        La frequence HackRF est calculee automatiquement depuis le catalogue
+        satellite (offset DC -200 kHz + correction PPM config).
+        """
+        profile = lookup_by_name(p.satellite_name)
+        if profile is not None:
+            freq_hz = hackrf_center_with_ppm(profile, config.ppm_correction)
+        else:
+            freq_hz = 137_700_000.0
         task = ScheduledTask(
             task_id=str(uuid.uuid4())[:8],
             satellite_name=p.satellite_name,
@@ -188,25 +197,3 @@ class PlannedTab(Vertical):
     def _save(self) -> None:
         if self._tasks_path is not None:
             save_scheduled_tasks(self._tasks_path, self._tasks)
-
-
-def _guess_freq_hz(satellite_name: str) -> float:
-    """
-    Frequence centrale par defaut a partir du nom du satellite.
-    Desaccord de 200 kHz par rapport a la frequence nominale (PPM HackRF +300 ppm,
-    cf. CONTEXT.md : centrer a 137.7 MHz pour Meteor-M2 emettant a 137.9 MHz).
-    """
-    name = satellite_name.upper()
-    if "METEOR" in name:
-        return 137_700_000.0   # visee 137.9 MHz, desaccord -200 kHz
-    if "NOAA 15" in name:
-        return 137_500_000.0   # visee 137.62 MHz
-    if "NOAA 18" in name:
-        return 137_700_000.0   # visee 137.912 MHz
-    if "NOAA 19" in name:
-        return 137_100_000.0   # visee 137.1 MHz
-    if "ISS" in name or "ZARYA" in name:
-        return 145_800_000.0
-    if "IRIDIUM" in name:
-        return 1_621_250_000.0
-    return 137_700_000.0
